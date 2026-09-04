@@ -3,37 +3,58 @@ import { computed } from 'vue'
 import { CardX } from '@/components/ui/card-x'
 import { ProgressThin } from '@/components/ui/progress-thin'
 import { Badge } from '@/components/ui/badge'
-import type { NodeStatus } from '@/types'
 import { formatBytes, formatUptime } from '@/utils/helper'
 import { Icon } from '@iconify/vue'
 import { getOSImage } from '@/utils/osImageHelper'
 
+// Define the interface inline to avoid TS2307 import errors
+interface NodeData {
+  name: string;
+  region?: string;
+  status?: {
+    online: boolean;
+    uptime?: number;
+    memory_used?: number;
+    memory_total?: number;
+    swap_used?: number;
+    swap_total?: number;
+    hdd_used?: number;
+    hdd_total?: number;
+    cpu?: number;
+    network_out?: number;
+    ping?: number;
+    loss?: number;
+    os?: string;
+    [key: string]: any; // Allow dynamic keys like ping_189
+  };
+}
+
 const props = defineProps<{
-  node: NodeStatus
+  node: NodeData
 }>()
 
 const statusText = computed(() => {
   if (!props.node.status?.online) return '离线'
-  return formatUptime(props.node.status.uptime)
+  return formatUptime(props.node.status.uptime || 0)
 })
 
 const memoryPercent = computed(() => {
   if (!props.node.status?.online || !props.node.status.memory_total) return 0
-  return ((props.node.status.memory_used / props.node.status.memory_total) * 100).toFixed(1)
+  return ((props.node.status.memory_used! / props.node.status.memory_total) * 100).toFixed(1)
 })
 
 const swapPercent = computed(() => {
   if (!props.node.status?.online || !props.node.status.swap_total) return 0
-  return ((props.node.status.swap_used / props.node.status.swap_total) * 100).toFixed(1)
+  return ((props.node.status.swap_used! / props.node.status.swap_total) * 100).toFixed(1)
 })
 
 const diskPercent = computed(() => {
   if (!props.node.status?.online || !props.node.status.hdd_total) return 0
-  return ((props.node.status.hdd_used / props.node.status.hdd_total) * 100).toFixed(1)
+  return ((props.node.status.hdd_used! / props.node.status.hdd_total) * 100).toFixed(1)
 })
 
 const cpuPercent = computed(() => {
-  if (!props.node.status?.online) return 0
+  if (!props.node.status?.online || props.node.status.cpu === undefined) return 0
   return props.node.status.cpu.toFixed(1)
 })
 
@@ -58,12 +79,9 @@ const isOffline = computed(() => !isOnline.value)
 const getPingData = (networkKey: string) => {
   if (!props.node.status) return { avg: 0, loss: 0 }
   
-  // Use index signature since TypeScript might not know about these specific keys
-  const statusRecord = props.node.status as Record<string, any>
-  
-  const pingValue = statusRecord[networkKey] ?? props.node.status.ping ?? 0
+  const pingValue = props.node.status[networkKey] ?? props.node.status.ping ?? 0
   const lossKey = networkKey.replace('ping_', 'loss_')
-  const lossValue = statusRecord[lossKey] ?? props.node.status.loss ?? 0
+  const lossValue = props.node.status[lossKey] ?? props.node.status.loss ?? 0
   
   return {
     avg: pingValue,
@@ -100,7 +118,7 @@ const networkData = computed(() => ({
               </Badge>
             </h3>
             <span class="text-xs text-zinc-500 truncate mt-0.5">
-              {{ node.status?.os || 'Unknown OS' }} • {{ node.status?.uptime ? formatUptime(node.status.uptime) : 'Offline' }}
+              {{ node.status?.os || 'Unknown OS' }} • {{ statusText }}
             </span>
           </div>
         </div>
@@ -202,7 +220,7 @@ const networkData = computed(() => ({
              ></div>
           </div>
           <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ isOnline ? networkData.telecom.loss.toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
+            {{ isOnline ? Number(networkData.telecom.loss).toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
           </div>
         </div>
 
@@ -220,7 +238,7 @@ const networkData = computed(() => ({
              ></div>
           </div>
           <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ isOnline ? networkData.unicom.loss.toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
+            {{ isOnline ? Number(networkData.unicom.loss).toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
           </div>
         </div>
 
@@ -238,7 +256,7 @@ const networkData = computed(() => ({
              ></div>
           </div>
           <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ isOnline ? networkData.mobile.loss.toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
+            {{ isOnline ? Number(networkData.mobile.loss).toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
           </div>
         </div>
 
