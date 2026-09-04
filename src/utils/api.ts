@@ -864,36 +864,57 @@ function buildPingWindow(server: CfServer): PingWindowPoint[] | undefined {
   if (!ping?.length && !loss?.length)
     return undefined
 
-  const lossByTs = new Map<number, LatencyWindowPoint>()
-  for (const point of loss ?? []) {
-    const ts = timestamp(point.ts, 0)
+  const lossByTs = new Map<number, Record<string, unknown>>()
+  for (const rawPoint of loss ?? []) {
+    const point = unwrapWindowPoint(rawPoint as unknown as Record<string, unknown>)
+    const ts = windowPointTs(point)
     if (ts > 0)
       lossByTs.set(ts, point)
   }
 
   const points: PingWindowPoint[] = []
-  for (const point of ping ?? []) {
-    const ts = timestamp(point.ts, 0)
+  for (const rawPoint of ping ?? []) {
+    const point = unwrapWindowPoint(rawPoint as unknown as Record<string, unknown>)
+    const ts = windowPointTs(point)
     if (ts <= 0)
       continue
-    const point2 = buildPingWindowPoint(ts, point, lossByTs.get(ts))
+    const point2 = buildPingWindowPoint(ts, point as LatencyWindowPoint | undefined, lossByTs.get(ts) as LatencyWindowPoint | undefined)
     if (point2)
       points.push(point2)
   }
 
   // 延迟窗口为空但丢包有数据时，以丢包的 ts 生成点
   if (!points.length) {
-    for (const point of loss ?? []) {
-      const ts = timestamp(point.ts, 0)
+    for (const rawPoint of loss ?? []) {
+      const point = unwrapWindowPoint(rawPoint as unknown as Record<string, unknown>)
+      const ts = windowPointTs(point)
       if (ts <= 0)
         continue
-      const point2 = buildPingWindowPoint(ts, undefined, point)
+      const point2 = buildPingWindowPoint(ts, undefined, point as LatencyWindowPoint)
       if (point2)
         points.push(point2)
     }
   }
 
   return points.length ? points : undefined
+}
+
+/** 从窗口点中提取时间戳，兼容旧版 ts / 新版 timestamp */
+function windowPointTs(point: Record<string, unknown>): number {
+  return timestamp(point.ts ?? point.timestamp, 0)
+}
+
+/** 解析可能嵌套在 sample_json 中的数据（新版后端 2.8.4+） */
+function unwrapWindowPoint(point: Record<string, unknown>): Record<string, unknown> {
+  if (point.sample_json && typeof point.sample_json === 'string') {
+    try {
+      const parsed = JSON.parse(point.sample_json)
+      if (parsed && typeof parsed === 'object')
+        return { ...point, ...parsed }
+    }
+    catch { /* 解析失败则使用原始对象 */ }
+  }
+  return point
 }
 
 /** 将 /api/servers 的 ping/loss 窗口按运营商拆分为独立序列（旧→新），供三网面板展示 */
@@ -903,9 +924,11 @@ function buildPingProviderWindow(server: CfServer): Record<string, PingProviderW
   if (!ping?.length && !loss?.length)
     return undefined
 
-  const lossByTs = new Map<number, LatencyWindowPoint>()
-  for (const point of loss ?? []) {
-    const ts = timestamp(point.ts, 0)
+  // 兼容新旧格式：构建 loss 按 ts 索引的 Map
+  const lossByTs = new Map<number, Record<string, unknown>>()
+  for (const rawPoint of loss ?? []) {
+    const point = unwrapWindowPoint(rawPoint as unknown as Record<string, unknown>)
+    const ts = windowPointTs(point)
     if (ts > 0)
       lossByTs.set(ts, point)
   }
@@ -913,8 +936,9 @@ function buildPingProviderWindow(server: CfServer): Record<string, PingProviderW
   const result: Record<string, PingProviderWindowPoint[]> = {}
   for (const key of PING_WINDOW_PROVIDER_KEYS) {
     const points: PingProviderWindowPoint[] = []
-    for (const point of ping ?? []) {
-      const ts = timestamp(point.ts, 0)
+    for (const rawPoint of ping ?? []) {
+      const point = unwrapWindowPoint(rawPoint as unknown as Record<string, unknown>)
+      const ts = windowPointTs(point)
       if (ts <= 0)
         continue
       const latency = pingWindowNumber(point[key])
@@ -930,8 +954,9 @@ function buildPingProviderWindow(server: CfServer): Record<string, PingProviderW
 
     // 延迟窗口为空但该运营商丢包有数据时，以丢包的 ts 生成点
     if (!points.length) {
-      for (const point of loss ?? []) {
-        const ts = timestamp(point.ts, 0)
+      for (const rawPoint of loss ?? []) {
+        const point = unwrapWindowPoint(rawPoint as unknown as Record<string, unknown>)
+        const ts = windowPointTs(point)
         if (ts <= 0)
           continue
         const lossValue = pingWindowNumber(point[key])
