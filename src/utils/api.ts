@@ -1,5 +1,5 @@
 import type { CurrencyCode } from '@/utils/financeHelper'
-import type { Client, NodeStatus, NodeStatusPing, PingRecord, PingWindowPoint, StatusRecord } from '@/utils/rpc'
+import type { Client, NodeStatus, NodeStatusPing, PingProviderWindowPoint, PingRecord, PingWindowPoint, StatusRecord } from '@/utils/rpc'
 import { isSupportedCurrency, normalizedCurrencyMap } from '@/utils/financeHelper'
 
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000
@@ -896,6 +896,58 @@ function buildPingWindow(server: CfServer): PingWindowPoint[] | undefined {
   return points.length ? points : undefined
 }
 
+/** 将 /api/servers 的 ping/loss 窗口按运营商拆分为独立序列（旧→新），供三网面板展示 */
+function buildPingProviderWindow(server: CfServer): Record<string, PingProviderWindowPoint[]> | undefined {
+  const ping = Array.isArray(server.ping) ? server.ping : undefined
+  const loss = Array.isArray(server.loss) ? server.loss : undefined
+  if (!ping?.length && !loss?.length)
+    return undefined
+
+  const lossByTs = new Map<number, LatencyWindowPoint>()
+  for (const point of loss ?? []) {
+    const ts = timestamp(point.ts, 0)
+    if (ts > 0)
+      lossByTs.set(ts, point)
+  }
+
+  const result: Record<string, PingProviderWindowPoint[]> = {}
+  for (const key of PING_WINDOW_PROVIDER_KEYS) {
+    const points: PingProviderWindowPoint[] = []
+    for (const point of ping ?? []) {
+      const ts = timestamp(point.ts, 0)
+      if (ts <= 0)
+        continue
+      const latency = pingWindowNumber(point[key])
+      const lossValue = pingWindowNumber(lossByTs.get(ts)?.[key])
+      if (latency === null && lossValue === null)
+        continue
+      points.push({
+        time: new Date(ts).toISOString(),
+        latency: latency !== null && latency > 0 ? latency : null,
+        loss: lossValue !== null && lossValue >= 0 ? lossValue : null,
+      })
+    }
+
+    // 延迟窗口为空但该运营商丢包有数据时，以丢包的 ts 生成点
+    if (!points.length) {
+      for (const point of loss ?? []) {
+        const ts = timestamp(point.ts, 0)
+        if (ts <= 0)
+          continue
+        const lossValue = pingWindowNumber(point[key])
+        if (lossValue === null || lossValue < 0)
+          continue
+        points.push({ time: new Date(ts).toISOString(), latency: null, loss: lossValue })
+      }
+    }
+
+    if (points.length)
+      result[key] = points
+  }
+
+  return Object.keys(result).length ? result : undefined
+}
+
 export function adaptServer(server: CfServer, apiIndex: number): AdaptedServer {
   const wire = server as unknown as Record<string, unknown>
   const uuid = getDisplayUuid(apiIndex, server.id)
@@ -915,6 +967,7 @@ export function adaptServer(server: CfServer, apiIndex: number): AdaptedServer {
     bd: pingEntry('BGP', server.ping_bd, server.loss_bd),
   }
   const pingWindow = buildPingWindow(server)
+  const pingProviderWindow = buildPingProviderWindow(server)
 
   return {
     client: {
@@ -982,6 +1035,7 @@ export function adaptServer(server: CfServer, apiIndex: number): AdaptedServer {
       uptime: Math.max(0, Math.floor((now - bootTime) / 1000)),
       ping,
       pingWindow,
+      pingProviderWindow,
     },
   }
 }

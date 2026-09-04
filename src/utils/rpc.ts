@@ -57,6 +57,13 @@ export interface PingWindowPoint {
   loss: number | null
 }
 
+/** 一小时延迟窗口中的单个 2 分钟桶（单个运营商，如 ct/cu/cm） */
+export interface PingProviderWindowPoint {
+  time: string
+  latency: number | null
+  loss: number | null
+}
+
 export interface NodeStatus {
   client: string
   time: string
@@ -86,6 +93,8 @@ export interface NodeStatus {
   ping?: Record<string, NodeStatusPing>
   /** /api/servers 返回的一小时延迟窗口（30 桶，旧→新），由适配器聚合生成 */
   pingWindow?: PingWindowPoint[]
+  /** /api/servers 返回的一小时延迟窗口（按运营商拆分，旧→新），由适配器生成 */
+  pingProviderWindow?: Record<string, PingProviderWindowPoint[]>
 }
 
 export interface StatusRecord {

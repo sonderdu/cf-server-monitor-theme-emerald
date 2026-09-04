@@ -1,4 +1,4 @@
-import type { Client, NodeStatus, NodeStatusPing } from '@/utils/rpc'
+import type { Client, NodeStatus, NodeStatusPing, PingProviderWindowPoint } from '@/utils/rpc'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { parseNodeGroups } from '@/utils/groupHelper'
@@ -74,6 +74,8 @@ export interface NodeData {
   connections_udp: number
   uptime: number
   ping?: Record<string, NodeStatusPing>
+  /** 按运营商拆分的一小时延迟窗口（旧→新），用于三网面板 */
+  pingProviderWindow?: Record<string, PingProviderWindowPoint[]>
 }
 
 /** WebSocket 连接状态 */
@@ -103,6 +105,7 @@ interface StatusData {
   connections_udp: number
   uptime: number
   ping?: Record<string, NodeStatusPing>
+  pingProviderWindow?: Record<string, PingProviderWindowPoint[]>
 }
 
 const EARTH_SNAPSHOT_INTERVAL_MS = 60_000
@@ -129,6 +132,7 @@ const useNodesStore = defineStore('nodes', () => {
   const nodes = ref<NodeData[]>([])
   const earthNodes = ref<NodeData[]>([])
   const pingHistoryByUuid = ref<Record<string, PingHistoryPoint[]>>({})
+  const pingProviderHistoryByUuid = ref<Record<string, Record<string, PingProviderWindowPoint[]>>>({})
   const wsConnectionState = ref<WsConnectionState>('disconnected')
   const wsReconnectAttempts = ref<number>(0)
   const pingHistoryConfig = ref<PingHistoryConfig>({ ...PING_HISTORY_DEFAULTS })
@@ -228,6 +232,7 @@ const useNodesStore = defineStore('nodes', () => {
       connections_udp: 0,
       uptime: 0,
       ping: undefined,
+      pingProviderWindow: undefined,
     }
   }
 
@@ -259,6 +264,7 @@ const useNodesStore = defineStore('nodes', () => {
       connections_udp: status.connections_udp,
       uptime: status.uptime,
       ping: status.ping,
+      pingProviderWindow: status.pingProviderWindow,
     }
   }
 
@@ -289,6 +295,7 @@ const useNodesStore = defineStore('nodes', () => {
       connections_udp: status.connections_udp,
       uptime: status.uptime,
       ping: status.ping,
+      pingProviderWindow: status.pingProviderWindow,
     }
   }
 
@@ -370,6 +377,54 @@ const useNodesStore = defineStore('nodes', () => {
   }
 
   /**
+   * 记录一次按运营商拆分的 ping 采样。与 recordPingSample 相同的桶对齐策略，
+   * 为每个运营商维护独立的一小时窗口序列。
+   */
+  function recordProviderPingSample(uuid: string, status: NodeStatus): void {
+    const sampleTime = Date.parse(status.time)
+    if (!Number.isFinite(sampleTime))
+      return
+
+    const pingEntries = Object.entries(status.ping ?? {})
+    if (!pingEntries.length)
+      return
+
+    const bucketTs = Math.floor(sampleTime / pingHistoryBucketMs()) * pingHistoryBucketMs()
+    const bucketTime = new Date(bucketTs).toISOString()
+    const byUuid = pingProviderHistoryByUuid.value[uuid] ?? {}
+    let changed = false
+    const nextByProvider: Record<string, PingProviderWindowPoint[]> = { ...byUuid }
+
+    for (const [provider, entry] of pingEntries) {
+      const latency = Number.isFinite(entry.latest) && entry.latest > 0 ? entry.latest : null
+      const loss = Number.isFinite(entry.loss) && entry.loss >= 0 ? entry.loss : null
+      if (latency === null && loss === null)
+        continue
+
+      const history = byUuid[provider] ?? []
+      const point = history.find(item => item.time === bucketTime)
+      if (point) {
+        const nextLatency = latency ?? point.latency
+        const nextLoss = loss ?? point.loss
+        if (nextLatency === point.latency && nextLoss === point.loss)
+          continue
+        nextByProvider[provider] = history.map(item => item === point
+          ? { time: point.time, latency: nextLatency, loss: nextLoss }
+          : item)
+      }
+      else {
+        nextByProvider[provider] = [...history, { time: bucketTime, latency, loss }]
+          .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
+          .slice(-pingHistoryConfig.value.points)
+      }
+      changed = true
+    }
+
+    if (changed)
+      pingProviderHistoryByUuid.value = { ...pingProviderHistoryByUuid.value, [uuid]: nextByProvider }
+  }
+
+  /**
    * Earth 视图共享采样快照，避免 globe / maps 各自维护定时器。
    */
   function refreshEarthNodes(force = false): void {
@@ -425,6 +480,19 @@ const useNodesStore = defineStore('nodes', () => {
         else {
           recordPingSample(uuid, status)
         }
+
+        if (pingHistoryConfig.value.showThreeNetDetails && status.pingProviderWindow) {
+          const seeded: Record<string, PingProviderWindowPoint[]> = {}
+          for (const [provider, points] of Object.entries(status.pingProviderWindow)) {
+            if (points.length)
+              seeded[provider] = points.slice(-pingHistoryConfig.value.points)
+          }
+          if (Object.keys(seeded).length)
+            pingProviderHistoryByUuid.value = { ...pingProviderHistoryByUuid.value, [uuid]: seeded }
+        }
+        else {
+          recordProviderPingSample(uuid, status)
+        }
       }
     })
 
@@ -465,8 +533,10 @@ const useNodesStore = defineStore('nodes', () => {
         return
 
       nodes.value[index] = updateNodeStatus(node, extractStatusData(status))
-      if (trackPing)
+      if (trackPing) {
         recordPingSample(uuid, status)
+        recordProviderPingSample(uuid, status)
+      }
       hasChanges = true
     })
 
@@ -514,6 +584,7 @@ const useNodesStore = defineStore('nodes', () => {
           connections_udp: currentNode.connections_udp,
           uptime: currentNode.uptime,
           ping: currentNode.ping,
+          pingProviderWindow: currentNode.pingProviderWindow,
         })
       }
       else {
@@ -551,6 +622,7 @@ const useNodesStore = defineStore('nodes', () => {
   function clearNodes(): void {
     nodes.value = []
     pingHistoryByUuid.value = {}
+    pingProviderHistoryByUuid.value = {}
     refreshEarthNodes(true)
   }
 
@@ -559,6 +631,7 @@ const useNodesStore = defineStore('nodes', () => {
     nodes,
     earthNodes,
     pingHistoryByUuid,
+    pingProviderHistoryByUuid,
     wsConnectionState,
     wsReconnectAttempts,
     // 计算属性
