@@ -26,7 +26,7 @@ function providerDotColor(key: string): string {
       <span class="text-muted-foreground w-4 shrink-0">{{ row.name }}</span>
       <!-- 延迟柱状图 -->
       <div
-        class="grid h-1.5 flex-1 items-end gap-[0.5px]"
+        class="grid h-2 flex-1 items-end gap-[1px]"
         :style="{ gridTemplateColumns: `repeat(${row.latencyBars.length}, minmax(0, 1fr))` }"
       >
         <DataTooltip
@@ -35,17 +35,17 @@ function providerDotColor(key: string): string {
           content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]"
         >
           <span
-            class="block h-full w-full rounded-[0.5px] transition-transform duration-150 group-hover/data-tooltip:scale-y-150"
+            class="block h-full w-full rounded-sm transition-transform duration-150 group-hover/data-tooltip:scale-y-150"
             :class="bar.className"
           />
         </DataTooltip>
       </div>
       <!-- 延迟数值 -->
       <span class="font-medium tabular-nums shrink-0 text-right min-w-[2.2em]" :class="row.latencyToneClass">{{ row.latency }}</span>
-      <span class="text-[10px] text-muted-foreground/60 shrink-0">ms</span>
+      <span class="text-[10px] text-muted-foreground/60 shrink-0 ml-2">ms</span>
       <!-- 丢包柱状图 -->
       <div
-        class="grid h-1.5 flex-1 items-end gap-[0.5px]"
+        class="grid h-2 flex-1 items-end gap-[1px] ml-1"
         :style="{ gridTemplateColumns: `repeat(${row.lossBars.length}, minmax(0, 1fr))` }"
       >
         <DataTooltip
@@ -54,7 +54,7 @@ function providerDotColor(key: string): string {
           content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]"
         >
           <span
-            class="block h-full w-full rounded-[0.5px] transition-transform duration-150 group-hover/data-tooltip:scale-y-150"
+            class="block h-full w-full rounded-sm transition-transform duration-150 group-hover/data-tooltip:scale-y-150"
             :class="bar.className"
           />
         </DataTooltip>
