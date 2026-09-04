@@ -30,9 +30,9 @@ function barsTooltipText(bars: { tooltip: string }[]): string {
       <span class="size-2 rounded-full shrink-0" :class="providerDotColor(row.key)" />
       <span class="text-muted-foreground w-4 shrink-0">{{ row.name }}</span>
       <!-- 延迟柱状图 -->
-      <DataTooltip placement="top" :content="barsTooltipText(row.latencyBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]">
+      <DataTooltip placement="top" :content="barsTooltipText(row.latencyBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]" class="!block w-full">
         <div
-          class="grid h-2.5 !w-full min-w-0 items-end gap-[2px] cursor-default"
+          class="grid h-2.5 items-end gap-[2px] cursor-default"
           :style="{ gridTemplateColumns: `repeat(${row.latencyBars.length}, minmax(0, 1fr))` }"
         >
           <span
@@ -47,9 +47,9 @@ function barsTooltipText(bars: { tooltip: string }[]): string {
       <span class="font-medium tabular-nums shrink-0 text-right min-w-[2.4em]" :class="row.latencyToneClass">{{ row.latency }}</span>
       <span class="text-[10px] text-muted-foreground/60 shrink-0">ms</span>
       <!-- 丢包柱状图 -->
-      <DataTooltip placement="top" :content="barsTooltipText(row.lossBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]">
+      <DataTooltip placement="top" :content="barsTooltipText(row.lossBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]" class="!block w-full">
         <div
-          class="grid h-2.5 !w-full min-w-0 items-end gap-[2px] cursor-default"
+          class="grid h-2.5 items-end gap-[2px] cursor-default"
           :style="{ gridTemplateColumns: `repeat(${row.lossBars.length}, minmax(0, 1fr))` }"
         >
           <span
