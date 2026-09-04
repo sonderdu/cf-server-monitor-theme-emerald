@@ -22,10 +22,17 @@ interface NodeData {
     hdd_total?: number;
     cpu?: number;
     network_out?: number;
-    ping?: number;
-    loss?: number;
+    ping?: number | string;
+    loss?: number | string;
     os?: string;
-    [key: string]: any; // Allow dynamic keys like ping_189
+    // Specific ping fields from huilang-me/CF-Server-Monitor
+    ping_ct?: string | number;
+    ping_cu?: string | number;
+    ping_cm?: string | number;
+    loss_ct?: string | number;
+    loss_cu?: string | number;
+    loss_cm?: string | number;
+    [key: string]: any;
   };
 }
 
@@ -55,19 +62,19 @@ const diskPercent = computed(() => {
 
 const cpuPercent = computed(() => {
   if (!props.node.status?.online || props.node.status.cpu === undefined) return 0
-  return props.node.status.cpu.toFixed(1)
+  return Number(props.node.status.cpu).toFixed(1)
 })
 
 const trafficPercent = computed(() => {
   if (!props.node.status?.online) return 0
   const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB
-  const outTraffic = props.node.status.network_out || 0
+  const outTraffic = Number(props.node.status.network_out || 0)
   return Math.min(((outTraffic / maxTraffic) * 100), 100).toFixed(1)
 })
 
 const trafficFormattedText = computed(() => {
   if (!props.node.status?.online) return '0 B / 0 B'
-  const outTraffic = props.node.status.network_out || 0
+  const outTraffic = Number(props.node.status.network_out || 0)
   const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB
   return `${formatBytes(outTraffic)} / ${formatBytes(maxTraffic)}`
 })
@@ -75,24 +82,27 @@ const trafficFormattedText = computed(() => {
 const isOnline = computed(() => props.node.status?.online === true)
 const isOffline = computed(() => !isOnline.value)
 
-// Safely get ping and loss data for different networks
-const getPingData = (networkKey: string) => {
+// Safely get ping and loss data matching CF-Server-Monitor API
+const getPingData = (pingKey: 'ping_ct' | 'ping_cu' | 'ping_cm', lossKey: 'loss_ct' | 'loss_cu' | 'loss_cm') => {
   if (!props.node.status) return { avg: 0, loss: 0 }
   
-  const pingValue = props.node.status[networkKey] ?? props.node.status.ping ?? 0
-  const lossKey = networkKey.replace('ping_', 'loss_')
-  const lossValue = props.node.status[lossKey] ?? props.node.status.loss ?? 0
+  // Try to get specific network data, parse from string if necessary
+  const rawPing = props.node.status[pingKey] ?? props.node.status.ping ?? 0
+  const rawLoss = props.node.status[lossKey] ?? props.node.status.loss ?? 0
+  
+  const parsedPing = typeof rawPing === 'string' ? parseFloat(rawPing) : rawPing;
+  const parsedLoss = typeof rawLoss === 'string' ? parseFloat(rawLoss) : rawLoss;
   
   return {
-    avg: pingValue,
-    loss: lossValue
+    avg: isNaN(parsedPing) ? 0 : parsedPing,
+    loss: isNaN(parsedLoss) ? 0 : parsedLoss
   }
 }
 
 const networkData = computed(() => ({
-  telecom: getPingData('ping_189'),
-  unicom: getPingData('ping_10010'),
-  mobile: getPingData('ping_10086')
+  telecom: getPingData('ping_ct', 'loss_ct'),
+  unicom: getPingData('ping_cu', 'loss_cu'),
+  mobile: getPingData('ping_cm', 'loss_cm')
 }))
 
 </script>
