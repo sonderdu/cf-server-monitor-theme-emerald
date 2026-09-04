@@ -1,282 +1,345 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { CardX } from '@/components/ui/card-x'
-import { ProgressThin } from '@/components/ui/progress-thin'
-import { Badge } from '@/components/ui/badge'
-import { formatBytes, formatUptime } from '@/utils/helper'
+import type { NodeData } from '@/stores/nodes'
 import { Icon } from '@iconify/vue'
-import { getOSImage } from '@/utils/osImageHelper'
+import { computed } from 'vue'
+import { Badge } from '@/components/ui/badge'
+import { CardX } from '@/components/ui/card-x'
+import { DataTooltip } from '@/components/ui/data-tooltip'
+import { ProgressThin } from '@/components/ui/progress-thin'
+import { useBackgroundSurface } from '@/composables/useBackgroundSurface'
+import { buildTopPingNetworks, useNodePingDisplay } from '@/composables/useNodePingDisplay'
+import { useAppStore } from '@/stores/app'
+import { useNodesStore } from '@/stores/nodes'
+import { getApiAssetUrl } from '@/utils/api'
+import { formatBytesPerSecondWithConfig, formatBytesWithConfig, formatDateTime, formatUptimeWithFormat, getStatus } from '@/utils/helper'
+import { formatOfflineTime, getCustomTags, getPriceTags, getRemainingTimeTagClass, getTrafficLevel, getTrafficUsed, getTrafficUsedPercentage, hasRegion, showTrafficProgress } from '@/utils/nodeHelper'
+import { getOSImage, getOSName } from '@/utils/osImageHelper'
+import { getRegionCode, getRegionDisplayName } from '@/utils/regionHelper'
 
-// Define the interface inline to avoid TS2307 import errors
-interface NodeData {
-  name: string;
-  region?: string;
-  // Sometimes the raw metrics are at the root level depending on the theme's state management
-  ping_ct?: string | number;
-  ping_cu?: string | number;
-  ping_cm?: string | number;
-  loss_ct?: string | number;
-  loss_cu?: string | number;
-  loss_cm?: string | number;
-  status?: {
-    online?: boolean;
-    uptime?: number;
-    memory_used?: number;
-    memory_total?: number;
-    swap_used?: number;
-    swap_total?: number;
-    hdd_used?: number;
-    hdd_total?: number;
-    cpu?: number;
-    network_out?: number;
-    ping?: number | string;
-    loss?: number | string;
-    os?: string;
-    // Specific ping fields from huilang-me/CF-Server-Monitor
-    ping_ct?: string | number;
-    ping_cu?: string | number;
-    ping_cm?: string | number;
-    loss_ct?: string | number;
-    loss_cu?: string | number;
-    loss_cm?: string | number;
-    [key: string]: any;
-  };
-}
+const props = defineProps<{ node: NodeData }>()
 
-const props = defineProps<{
-  node: NodeData
+const emit = defineEmits<{
+  click: []
+  pingClick: [node: NodeData]
 }>()
 
-const statusText = computed(() => {
-  if (!props.node.status?.online) return '离线'
-  return formatUptime(props.node.status.uptime || 0)
-})
+const appStore = useAppStore()
+const nodesStore = useNodesStore()
+const { pickSurfaceClass } = useBackgroundSurface()
 
-const memoryPercent = computed(() => {
-  if (!props.node.status?.memory_total) return 0
-  return ((props.node.status.memory_used! / props.node.status.memory_total) * 100).toFixed(1)
-})
+const formatBytes = (bytes: number) => formatBytesWithConfig(bytes, appStore.byteDecimals)
+const formatBytesPerSecond = (bytes: number) => formatBytesPerSecondWithConfig(bytes, appStore.byteDecimals)
+const formatUptime = (seconds: number) => formatUptimeWithFormat(seconds, 'hour')
+const offlineTime = computed(() => formatOfflineTime(props.node))
+const expiredDate = computed(() => formatDateTime(props.node.expired_at, 'YYYY-MM-DD'))
 
-const swapPercent = computed(() => {
-  if (!props.node.status?.swap_total) return 0
-  return ((props.node.status.swap_used! / props.node.status.swap_total) * 100).toFixed(1)
-})
+const cpuStatus = computed(() => getStatus(props.node.cpu ?? 0))
+const memPercentage = computed(() => (props.node.ram ?? 0) / (props.node.mem_total || 1) * 100)
+const memStatus = computed(() => getStatus(memPercentage.value))
+const diskPercentage = computed(() => (props.node.disk ?? 0) / (props.node.disk_total || 1) * 100)
+const diskStatus = computed(() => getStatus(diskPercentage.value))
 
-const diskPercent = computed(() => {
-  if (!props.node.status?.hdd_total) return 0
-  return ((props.node.status.hdd_used! / props.node.status.hdd_total) * 100).toFixed(1)
-})
+const trafficUsedPercentage = computed(() => getTrafficUsedPercentage(props.node))
+const trafficStatus = computed(() => getTrafficLevel(trafficUsedPercentage.value))
+const trafficUsed = computed(() => getTrafficUsed(props.node))
+const priceTags = computed(() => getPriceTags(props.node, appStore.lang))
+const remainingTimeTagClass = computed(() => getRemainingTimeTagClass(props.node))
+const customTags = computed(() => getCustomTags(props.node))
 
-const cpuPercent = computed(() => {
-  if (props.node.status?.cpu === undefined) return 0
-  return Number(props.node.status.cpu).toFixed(1)
-})
+const {
+  latencyRenderBars,
+  lossRenderBars,
+  latencyDisplay,
+  lossDisplay,
+  latencyPanelTooltip,
+  lossPanelTooltip,
+} = useNodePingDisplay(props.node.uuid)
+const topPingNetworks = computed(() => buildTopPingNetworks(props.node.ping))
 
-const trafficPercent = computed(() => {
-  const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB
-  const outTraffic = Number(props.node.status?.network_out || 0)
-  return Math.min(((outTraffic / maxTraffic) * 100), 100).toFixed(1)
-})
-
-const trafficFormattedText = computed(() => {
-  const outTraffic = Number(props.node.status?.network_out || 0)
-  const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB
-  return `${formatBytes(outTraffic)} / ${formatBytes(maxTraffic)}`
-})
-
-const isOnline = computed(() => props.node.status?.online === true)
-const isOffline = computed(() => !isOnline.value)
-
-// Aggressively search for ping data
-const getPingData = (pingKey: 'ping_ct' | 'ping_cu' | 'ping_cm', lossKey: 'loss_ct' | 'loss_cu' | 'loss_cm') => {
-  // Check inside status first, then check root node object
-  let rawPing = props.node.status?.[pingKey] ?? props.node[pingKey] ?? props.node.status?.ping ?? 0
-  let rawLoss = props.node.status?.[lossKey] ?? props.node[lossKey] ?? props.node.status?.loss ?? 0
-  
-  const parsedPing = typeof rawPing === 'string' ? parseFloat(rawPing) : rawPing;
-  const parsedLoss = typeof rawLoss === 'string' ? parseFloat(rawLoss) : rawLoss;
-  
-  return {
-    avg: isNaN(parsedPing) ? 0 : parsedPing,
-    loss: isNaN(parsedLoss) ? 0 : parsedLoss
-  }
+function openPingDialog() {
+  emit('pingClick', props.node)
 }
-
-const networkData = computed(() => ({
-  telecom: getPingData('ping_ct', 'loss_ct'),
-  unicom: getPingData('ping_cu', 'loss_cu'),
-  mobile: getPingData('ping_cm', 'loss_cm')
-}))
-
 </script>
 
 <template>
-  <!-- Removed opacity-50 classes for debugging so we can see values even if it thinks it's offline -->
-  <CardX class="flex flex-col h-full bg-zinc-900/50 border-zinc-800/50 backdrop-blur-sm transition-all duration-300 hover:bg-zinc-800/50">
-    <div class="p-4 flex-1 flex flex-col gap-4">
-      <!-- Header -->
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3 overflow-hidden">
-          <div class="relative flex-shrink-0">
-            <img :src="getOSImage(node.status?.os || 'unknown')" class="w-8 h-8 rounded-sm opacity-90 object-contain" :alt="node.status?.os || 'OS'" />
-            <div 
-              class="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-zinc-900"
-              :class="isOnline ? 'bg-emerald-500' : 'bg-red-500'"
-            />
-          </div>
-          <div class="min-w-0 flex flex-col">
-            <h3 class="font-medium text-zinc-200 truncate flex items-center gap-2">
-              {{ node.name }}
-              <Badge v-if="node.region" variant="outline" class="text-[10px] px-1.5 py-0 border-zinc-700 text-zinc-400">
-                {{ node.region }}
-              </Badge>
-            </h3>
-            <span class="text-xs text-zinc-500 truncate mt-0.5">
-              {{ node.status?.os || 'Unknown OS' }} • {{ statusText }}
-            </span>
-          </div>
+  <CardX
+    hoverable
+    class="node-card h-full w-full cursor-pointer border-none shadow-[0_0_0_1px] shadow-transparent transition-all duration-200 rounded-md bg-background/60 hover:bg-background hover:shadow-emerald-600/10 hover:shadow-[0_0_20px,0_0_0_1px] hover:-translate-y-0.5 hover:z-1"
+    :class="[pickSurfaceClass('', 'backdrop-blur-sm'), !props.node.online && 'shadow-[0_0_0_1px] !shadow-red-600/20']"
+    @click="emit('click')"
+  >
+    <template #header>
+      <div class="flex gap-2 min-w-0 items-center">
+        <div class="size-2 rounded-full relative" :class="[props.node.online ? 'bg-emerald-600' : 'bg-red-600']">
+          <div
+            class="animate-ping absolute inset-0 rounded-full opacity-50"
+            :class="[props.node.online ? 'bg-emerald-600' : 'bg-red-600']"
+          />
+        </div>
+        <div class="text-md font-bold flex-1 min-w-0 truncate">
+          {{ props.node.name }}
         </div>
       </div>
+    </template>
 
-      <!-- Stats Grid -->
-      <div class="grid grid-cols-2 gap-3" :class="{'opacity-50': isOffline}">
-        <!-- CPU -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between text-xs">
-            <span class="text-zinc-400 flex items-center gap-1.5">
-              <Icon icon="ph:cpu" class="w-3.5 h-3.5" />
-              CPU
-            </span>
-            <span class="font-mono text-zinc-300">{{ cpuPercent }}%</span>
+    <template #header-extra>
+      <div class="flex gap-2 items-center">
+        <img :src="getOSImage(props.node.os, props.node.source_index)" :alt="getOSName(props.node.os)" class="size-4">
+        <img
+          v-if="hasRegion(props.node.region)" :src="getApiAssetUrl(`flags/${getRegionCode(props.node.region).toLowerCase()}.svg`, props.node.source_index)"
+          :alt="getRegionDisplayName(props.node.region)" class="size-5 shrink-0 rounded-sm"
+        >
+      </div>
+    </template>
+
+    <template #default>
+      <div class="flex flex-col gap-3">
+        <div class="gap-x-3 gap-y-1 grid grid-cols-2">
+          <!-- CPU -->
+          <div class="flex flex-col gap-1">
+            <div class="w-full text-xs flex flex-row justify-between">
+              <span class="text-muted-foreground">
+                CPU
+              </span>
+              <span>{{ (props.node.cpu ?? 0).toFixed(1) }}%</span>
+            </div>
+            <ProgressThin :percentage="props.node.cpu ?? 0" :status="cpuStatus" :height="4" />
+            <div class="text-[11px] text-muted-foreground truncate">
+              {{ props.node.load.toFixed(2) ?? 0 }}, {{ props.node.load5.toFixed(2) ?? 0 }}, {{
+                props.node.load15.toFixed(2) ?? 0 }}
+            </div>
           </div>
-          <ProgressThin :value="Number(cpuPercent)" class="h-1 bg-zinc-800" indicator-class="bg-emerald-500" />
+
+          <!-- 内存 -->
+          <div class="flex flex-col gap-1">
+            <div class="w-full text-xs flex flex-row justify-between">
+              <span class="text-muted-foreground">
+                内存
+              </span>
+              <span>{{ memPercentage.toFixed(1) }}%</span>
+            </div>
+            <ProgressThin :percentage="memPercentage" :status="memStatus" :height="4" />
+            <DataTooltip placement="top" class="block" :content-class="[!props.node.swap && '!hidden']">
+              <div class="text-[11px] text-muted-foreground truncate">
+                {{ formatBytes(props.node.ram ?? 0) }} / {{ formatBytes(props.node.mem_total ?? 0) }}
+              </div>
+              <template #content>
+                <div class="flex items-center justify-between gap-3 whitespace-nowrap">
+                  <span class="text-background/70">Swap</span>
+                  <span>{{ formatBytes(props.node.swap ?? 0) }}</span>
+                </div>
+              </template>
+            </DataTooltip>
+          </div>
+
+          <!-- 硬盘 -->
+          <div class="flex flex-col gap-1">
+            <div class="w-full text-xs flex flex-row justify-between">
+              <span class="text-muted-foreground">
+                硬盘
+              </span>
+              <span>{{ diskPercentage.toFixed(1) }}%</span>
+            </div>
+            <ProgressThin :percentage="diskPercentage" :status="diskStatus" :height="4" />
+            <div class="text-[11px] text-muted-foreground truncate">
+              {{ formatBytes(props.node.disk ?? 0) }} / {{ formatBytes(props.node.disk_total ?? 0) }}
+            </div>
+          </div>
+
+          <!-- 流量进度条 -->
+          <div class="flex flex-col gap-1">
+            <div class="w-full text-xs flex flex-row justify-between">
+              <span class="text-muted-foreground">
+                流量
+              </span>
+              <span>{{ trafficUsedPercentage.toFixed(1) }}%</span>
+            </div>
+            <ProgressThin :percentage="trafficUsedPercentage" :status="trafficStatus" :height="4" />
+            <DataTooltip placement="top" class="block">
+              <div class="text-[11px] text-muted-foreground truncate">
+                {{ formatBytes(trafficUsed) }} /
+                <template v-if="showTrafficProgress(node)">
+                  {{ formatBytes(props.node.traffic_limit) }}
+                </template>
+                <template v-else>
+                  ∞
+                </template>
+              </div>
+              <template #content>
+                <div class="flex items-center justify-between gap-3 whitespace-nowrap">
+                  <div class="text-[11px] flex flex-col">
+                    <div class="flex flex-row items-center gap-1">
+                      <Icon icon="tabler:chevron-up" width="12" height="12" />
+                      {{ formatBytes(props.node.net_monthly_up ?? 0) }}
+                    </div>
+                    <div class="flex flex-row items-center gap-1">
+                      <Icon icon="tabler:chevron-down" width="12" height="12" />
+                      {{ formatBytes(props.node.net_monthly_down ?? 0) }}
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </DataTooltip>
+          </div>
         </div>
-
-        <!-- RAM -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between text-xs">
-            <span class="text-zinc-400 flex items-center gap-1.5">
-              <Icon icon="ph:memory" class="w-3.5 h-3.5" />
-              RAM
-            </span>
-            <span class="font-mono text-zinc-300">{{ memoryPercent }}%</span>
+        <div class="relative text-[11px] text-muted-foreground">
+          <div
+            v-if="!props.node.online"
+            class="absolute inset-0 z-10 flex flex-col items-center justify-center space-y-1"
+          >
+            <span class="text-sm text-red-600">离线</span>
+            <div>{{ offlineTime }}</div>
           </div>
-          <ProgressThin :value="Number(memoryPercent)" class="h-1 bg-zinc-800" indicator-class="bg-blue-500" />
+          <div class="flex flex-col gap-y-2" :class="[!props.node.online && 'blur-xs opacity-60 pointer-events-none']">
+            <div class="flex items-center">
+              <span class="truncate">
+                速率
+              </span>
+              <div class="border-t-2 border-dotted border-gray-500/10 mx-2 flex-1" />
+              <div class="truncate flex flex-row gap-1">
+                <div class="text-green-600 flex flex-row items-center gap-1">
+                  <Icon icon="tabler:chevron-up" width="12" height="12" />
+                  {{ formatBytesPerSecond(props.node.net_out ?? 0) }}
+                </div>
+                <div class="text-blue-600 flex flex-row items-center gap-1">
+                  <Icon icon="tabler:chevron-down" width="12" height="12" />
+                  {{ formatBytesPerSecond(props.node.net_in ?? 0) }}
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="truncate">
+                在线
+              </span>
+              <div class="border-t-2 border-dotted border-gray-500/10 mx-2 flex-1" />
+              <span class="truncate">
+                {{ props.node.uptime > 0 ? formatUptime(props.node.uptime) : '' }}
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="truncate">
+                费用
+              </span>
+              <div class="border-t-2 border-dotted border-gray-500/10 mx-2 flex-1" />
+              <DataTooltip placement="left" :content="expiredDate" content-class="whitespace-nowrap right-0 mr-0">
+                <span class="truncate flex flex-row gap-1">
+                  <template v-for="(tag, index) in priceTags" :key="tag">
+                    <span class="inline-flex flex-row gap-1 items-center">
+                      <template v-if="tag.highlightValue">
+                        <span>{{ tag.prefix }}</span>
+                        <span :class="remainingTimeTagClass">{{ tag.highlightValue }}</span>
+                        <span>{{ tag.suffix }}</span>
+                      </template>
+                      <template v-else>
+                        {{ tag.text }}
+                      </template>
+                    </span>
+                    <span v-if="index < priceTags.length - 1" :key="`${tag}-${index}`">·</span>
+                  </template>
+                </span>
+              </DataTooltip>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="truncate">
+                三网
+              </span>
+              <div class="border-t-2 border-dotted border-gray-500/10 mx-2 flex-1" />
+              <div v-if="topPingNetworks.length > 0" class="flex flex-row">
+                <DataTooltip
+                  v-for="(net, index) in topPingNetworks" :key="net.key" placement="top"
+                  :content="net.tooltip"
+                  content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]"
+                >
+                  <div class="truncate">
+                    <span v-if="index" class="mx-1">·</span>
+                    <span :class="net.toneClass">{{ net.latency }}</span>
+                  </div>
+                </DataTooltip>
+              </div>
+              <div v-else class="truncate">
+                N/A
+              </div>
+            </div>
+            <template v-if="nodesStore.showThreeNetDetails">
+              <div class="grid grid-cols-6 gap-x-3">
+                <div
+                  role="button" tabindex="0"
+                  class="group/panel relative col-span-3 flex h-6 cursor-pointer flex-col gap-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  :title="latencyPanelTooltip" :aria-label="`${props.node.name} 延迟`"
+                  @click.stop="openPingDialog"
+                  @keydown.enter.stop.prevent="openPingDialog"
+                  @keydown.space.stop.prevent="openPingDialog"
+                >
+                  <div class="flex items-center justify-between text-[11px] leading-none relative">
+                    <span class="text-muted-foreground">延迟</span>
+                    <div class="border-t-2 border-dotted border-gray-500/10 mx-2 flex-1" />
+                    <span class="font-medium text-foreground/85">{{ latencyDisplay }}</span>
+                  </div>
+                  <div
+                    class="grid h-full items-end gap-[1px]"
+                    :style="{ gridTemplateColumns: `repeat(${latencyRenderBars.length}, minmax(0, 1fr))` }"
+                  >
+                    <DataTooltip
+                      v-for="bar in latencyRenderBars" :key="bar.key" placement="top"
+                      :content="bar.tooltip" class="h-full w-full"
+                      content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]"
+                    >
+                      <span
+                        class="block h-full w-full rounded-[1px] transition-transform duration-150 group-hover/data-tooltip:scale-y-200"
+                        :class="bar.className"
+                      />
+                    </DataTooltip>
+                  </div>
+                </div>
+                <div
+                  role="button" tabindex="0"
+                  class="group/panel relative col-span-3 flex h-6 cursor-pointer flex-col gap-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  :title="lossPanelTooltip" :aria-label="`${props.node.name} 丢包`"
+                  @click.stop="openPingDialog"
+                  @keydown.enter.stop.prevent="openPingDialog"
+                  @keydown.space.stop.prevent="openPingDialog"
+                >
+                  <div class="flex items-center justify-between text-[11px] leading-none relative">
+                    <span class="text-muted-foreground">丢包</span>
+                    <div class="border-t-2 border-dotted border-gray-500/10 mx-2 flex-1" />
+                    <span class="font-medium text-foreground/85">{{ lossDisplay }}</span>
+                  </div>
+                  <div
+                    class="grid h-full items-end gap-[1px]"
+                    :style="{ gridTemplateColumns: `repeat(${lossRenderBars.length}, minmax(0, 1fr))` }"
+                  >
+                    <DataTooltip
+                      v-for="bar in lossRenderBars" :key="bar.key" placement="top"
+                      :content="bar.tooltip" class="h-full w-full"
+                      content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]"
+                    >
+                      <span
+                        class="block h-full w-full rounded-[1px] transition-transform duration-150 group-hover/data-tooltip:scale-y-200"
+                        :class="bar.className"
+                      />
+                    </DataTooltip>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
-
-        <!-- SWAP -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between text-xs">
-            <span class="text-zinc-400 flex items-center gap-1.5">
-              <Icon icon="ph:arrows-left-right" class="w-3.5 h-3.5" />
-              SWAP
-            </span>
-            <span class="font-mono text-zinc-300">{{ swapPercent }}%</span>
-          </div>
-          <ProgressThin :value="Number(swapPercent)" class="h-1 bg-zinc-800" indicator-class="bg-amber-500" />
-        </div>
-
-        <!-- DISK -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between text-xs">
-            <span class="text-zinc-400 flex items-center gap-1.5">
-              <Icon icon="ph:hard-drive" class="w-3.5 h-3.5" />
-              DISK
-            </span>
-            <span class="font-mono text-zinc-300">{{ diskPercent }}%</span>
-          </div>
-          <ProgressThin :value="Number(diskPercent)" class="h-1 bg-zinc-800" indicator-class="bg-purple-500" />
+        <div v-if="customTags.length > 0" class="flex shrink-0 flex-wrap gap-1 items-center">
+          <Badge
+            v-for="(tag, index) in customTags" :key="index" variant="outline"
+            class="!text-[11px] rounded text-muted-foreground border-muted-foreground/10 px-1.5"
+          >
+            {{ tag }}
+          </Badge>
         </div>
       </div>
-
-      <div class="w-full h-px bg-zinc-800/50 my-1"></div>
-
-      <!-- Traffic Progress -->
-      <div class="space-y-1.5" :class="{'opacity-50': isOffline}">
-        <div class="flex items-center justify-between text-xs mb-2">
-          <span class="text-zinc-400 flex items-center gap-1.5">
-            <Icon icon="ph:database" class="w-3.5 h-3.5 text-emerald-500" />
-            流量
-          </span>
-          <span class="text-emerald-500">在线: {{ statusText.replace('天', '天') }}</span>
-        </div>
-        <div class="flex gap-1 h-2 mb-1">
-          <div 
-            v-for="i in 15" :key="i"
-            class="flex-1 rounded-sm transition-all"
-            :class="[
-              isOffline ? 'bg-zinc-800' : 
-              i <= (Number(trafficPercent) / 100 * 15) ? 'bg-emerald-400' : 'bg-zinc-800'
-            ]"
-          ></div>
-        </div>
-        <div class="text-right text-xs font-mono text-zinc-300 mt-1">
-          {{ trafficFormattedText }}
-        </div>
-      </div>
-      
-      <div class="w-full h-px bg-zinc-800/50 mt-1 mb-2"></div>
-
-      <!-- Multi-Network Ping Status -->
-      <!-- Removed isOffline opacity dependency here to force rendering of values -->
-      <div class="space-y-3">
-        
-        <!-- Telecom / 电信 -->
-        <div class="flex items-center justify-between text-sm">
-          <div class="w-10 text-zinc-400 text-xs">电信</div>
-          <div class="w-16 font-mono text-yellow-400 text-right">
-            <!-- Removed isOnline ? ... : 0 check. Just display what we found. -->
-            {{ networkData.telecom.avg }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
-          </div>
-          <div class="flex flex-1 gap-1 px-3">
-             <div 
-                v-for="i in 20" :key="i"
-                class="flex-1 h-2.5 rounded-[1px]"
-                :class="(networkData.telecom.avg > 0) ? 'bg-yellow-400' : 'bg-zinc-800'"
-             ></div>
-          </div>
-          <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ Number(networkData.telecom.loss).toFixed(1) }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
-          </div>
-        </div>
-
-        <!-- Unicom / 联通 -->
-        <div class="flex items-center justify-between text-sm">
-          <div class="w-10 text-zinc-400 text-xs">联通</div>
-          <div class="w-16 font-mono text-yellow-400 text-right">
-             {{ networkData.unicom.avg }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
-          </div>
-          <div class="flex flex-1 gap-1 px-3">
-             <div 
-                v-for="i in 20" :key="i"
-                class="flex-1 h-2.5 rounded-[1px]"
-                :class="(networkData.unicom.avg > 0) ? 'bg-yellow-400' : 'bg-zinc-800'"
-             ></div>
-          </div>
-          <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ Number(networkData.unicom.loss).toFixed(1) }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
-          </div>
-        </div>
-
-        <!-- Mobile / 移动 -->
-        <div class="flex items-center justify-between text-sm">
-          <div class="w-10 text-zinc-400 text-xs">移动</div>
-          <div class="w-16 font-mono text-yellow-400 text-right">
-             {{ networkData.mobile.avg }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
-          </div>
-          <div class="flex flex-1 gap-1 px-3">
-             <div 
-                v-for="i in 20" :key="i"
-                class="flex-1 h-2.5 rounded-[1px]"
-                :class="(networkData.mobile.avg > 0) ? 'bg-yellow-400' : 'bg-zinc-800'"
-             ></div>
-          </div>
-          <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ Number(networkData.mobile.loss).toFixed(1) }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
-          </div>
-        </div>
-
-      </div>
-    </div>
+    </template>
   </CardX>
 </template>
+
+<style scoped>
+.node-card {
+  position: relative;
+  overflow: hidden;
+}
+</style>
