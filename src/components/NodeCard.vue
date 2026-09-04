@@ -3,15 +3,13 @@ import { computed } from 'vue'
 import { CardX } from '@/components/ui/card-x'
 import { ProgressThin } from '@/components/ui/progress-thin'
 import { Badge } from '@/components/ui/badge'
-import { DataTooltip } from '@/components/ui/data-tooltip'
-import type { NodeItem } from '@/types/global'
+import type { NodeStatus } from '@/types'
 import { formatBytes, formatUptime } from '@/utils/helper'
 import { Icon } from '@iconify/vue'
-import { getOsImage } from '@/utils/osImageHelper'
-import NodePingListCell from './NodePingListCell.vue'
+import { getOSImage } from '@/utils/osImageHelper'
 
 const props = defineProps<{
-  node: NodeItem
+  node: NodeStatus
 }>()
 
 const statusText = computed(() => {
@@ -20,7 +18,7 @@ const statusText = computed(() => {
 })
 
 const memoryPercent = computed(() => {
-  if (!props.node.status?.online) return 0
+  if (!props.node.status?.online || !props.node.status.memory_total) return 0
   return ((props.node.status.memory_used / props.node.status.memory_total) * 100).toFixed(1)
 })
 
@@ -30,7 +28,7 @@ const swapPercent = computed(() => {
 })
 
 const diskPercent = computed(() => {
-  if (!props.node.status?.online) return 0
+  if (!props.node.status?.online || !props.node.status.hdd_total) return 0
   return ((props.node.status.hdd_used / props.node.status.hdd_total) * 100).toFixed(1)
 })
 
@@ -41,10 +39,9 @@ const cpuPercent = computed(() => {
 
 const trafficPercent = computed(() => {
   if (!props.node.status?.online) return 0
-  // Handle edge cases where total traffic is not set or zero
-  const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB if not specified by backend
+  const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB
   const outTraffic = props.node.status.network_out || 0
-  return ((outTraffic / maxTraffic) * 100).toFixed(1)
+  return Math.min(((outTraffic / maxTraffic) * 100), 100).toFixed(1)
 })
 
 const trafficFormattedText = computed(() => {
@@ -54,18 +51,19 @@ const trafficFormattedText = computed(() => {
   return `${formatBytes(outTraffic)} / ${formatBytes(maxTraffic)}`
 })
 
-
 const isOnline = computed(() => props.node.status?.online === true)
 const isOffline = computed(() => !isOnline.value)
 
-// Helper to extract specific network pings if available, otherwise fallback
-const getPingData = (networkKey: 'ping_189' | 'ping_10010' | 'ping_10086') => {
+// Safely get ping and loss data for different networks
+const getPingData = (networkKey: string) => {
   if (!props.node.status) return { avg: 0, loss: 0 }
-  // Try to get specific network data, fallback to general ping if missing
-  const pingValue = props.node.status[networkKey] ?? props.node.status.ping ?? 0;
-  // Calculate a fake loss or fetch real loss if your backend supports it (e.g., loss_189)
-  const lossKey = networkKey.replace('ping_', 'loss_') as keyof typeof props.node.status;
-  const lossValue = props.node.status[lossKey] ?? props.node.status.loss ?? 0;
+  
+  // Use index signature since TypeScript might not know about these specific keys
+  const statusRecord = props.node.status as Record<string, any>
+  
+  const pingValue = statusRecord[networkKey] ?? props.node.status.ping ?? 0
+  const lossKey = networkKey.replace('ping_', 'loss_')
+  const lossValue = statusRecord[lossKey] ?? props.node.status.loss ?? 0
   
   return {
     avg: pingValue,
@@ -88,7 +86,7 @@ const networkData = computed(() => ({
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3 overflow-hidden">
           <div class="relative flex-shrink-0">
-            <img :src="getOsImage(node.status?.os || 'unknown')" class="w-8 h-8 rounded-sm opacity-90" :alt="node.status?.os" />
+            <img :src="getOSImage(node.status?.os || 'unknown')" class="w-8 h-8 rounded-sm opacity-90 object-contain" :alt="node.status?.os || 'OS'" />
             <div 
               class="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-zinc-900"
               :class="isOnline ? 'bg-emerald-500' : 'bg-red-500'"
@@ -97,8 +95,8 @@ const networkData = computed(() => ({
           <div class="min-w-0 flex flex-col">
             <h3 class="font-medium text-zinc-200 truncate flex items-center gap-2">
               {{ node.name }}
-              <Badge variant="outline" class="text-[10px] px-1.5 py-0 border-zinc-700 text-zinc-400">
-                {{ node.region || 'Unknown' }}
+              <Badge v-if="node.region" variant="outline" class="text-[10px] px-1.5 py-0 border-zinc-700 text-zinc-400">
+                {{ node.region }}
               </Badge>
             </h3>
             <span class="text-xs text-zinc-500 truncate mt-0.5">
@@ -168,7 +166,7 @@ const networkData = computed(() => ({
             <Icon icon="ph:database" class="w-3.5 h-3.5 text-emerald-500" />
             流量
           </span>
-          <span class="text-emerald-500">在线: {{ node.status?.uptime ? formatUptime(node.status.uptime).replace('天', '天') : '0天' }}</span>
+          <span class="text-emerald-500">在线: {{ statusText.replace('天', '天') }}</span>
         </div>
         <div class="flex gap-1 h-2 mb-1">
           <div 
