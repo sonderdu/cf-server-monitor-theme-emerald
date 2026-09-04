@@ -11,8 +11,15 @@ import { getOSImage } from '@/utils/osImageHelper'
 interface NodeData {
   name: string;
   region?: string;
+  // Sometimes the raw metrics are at the root level depending on the theme's state management
+  ping_ct?: string | number;
+  ping_cu?: string | number;
+  ping_cm?: string | number;
+  loss_ct?: string | number;
+  loss_cu?: string | number;
+  loss_cm?: string | number;
   status?: {
-    online: boolean;
+    online?: boolean;
     uptime?: number;
     memory_used?: number;
     memory_total?: number;
@@ -46,35 +53,33 @@ const statusText = computed(() => {
 })
 
 const memoryPercent = computed(() => {
-  if (!props.node.status?.online || !props.node.status.memory_total) return 0
+  if (!props.node.status?.memory_total) return 0
   return ((props.node.status.memory_used! / props.node.status.memory_total) * 100).toFixed(1)
 })
 
 const swapPercent = computed(() => {
-  if (!props.node.status?.online || !props.node.status.swap_total) return 0
+  if (!props.node.status?.swap_total) return 0
   return ((props.node.status.swap_used! / props.node.status.swap_total) * 100).toFixed(1)
 })
 
 const diskPercent = computed(() => {
-  if (!props.node.status?.online || !props.node.status.hdd_total) return 0
+  if (!props.node.status?.hdd_total) return 0
   return ((props.node.status.hdd_used! / props.node.status.hdd_total) * 100).toFixed(1)
 })
 
 const cpuPercent = computed(() => {
-  if (!props.node.status?.online || props.node.status.cpu === undefined) return 0
+  if (props.node.status?.cpu === undefined) return 0
   return Number(props.node.status.cpu).toFixed(1)
 })
 
 const trafficPercent = computed(() => {
-  if (!props.node.status?.online) return 0
   const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB
-  const outTraffic = Number(props.node.status.network_out || 0)
+  const outTraffic = Number(props.node.status?.network_out || 0)
   return Math.min(((outTraffic / maxTraffic) * 100), 100).toFixed(1)
 })
 
 const trafficFormattedText = computed(() => {
-  if (!props.node.status?.online) return '0 B / 0 B'
-  const outTraffic = Number(props.node.status.network_out || 0)
+  const outTraffic = Number(props.node.status?.network_out || 0)
   const maxTraffic = 500 * 1024 * 1024 * 1024 // Fallback to 500GB
   return `${formatBytes(outTraffic)} / ${formatBytes(maxTraffic)}`
 })
@@ -82,13 +87,11 @@ const trafficFormattedText = computed(() => {
 const isOnline = computed(() => props.node.status?.online === true)
 const isOffline = computed(() => !isOnline.value)
 
-// Safely get ping and loss data matching CF-Server-Monitor API
+// Aggressively search for ping data
 const getPingData = (pingKey: 'ping_ct' | 'ping_cu' | 'ping_cm', lossKey: 'loss_ct' | 'loss_cu' | 'loss_cm') => {
-  if (!props.node.status) return { avg: 0, loss: 0 }
-  
-  // Try to get specific network data, parse from string if necessary
-  const rawPing = props.node.status[pingKey] ?? props.node.status.ping ?? 0
-  const rawLoss = props.node.status[lossKey] ?? props.node.status.loss ?? 0
+  // Check inside status first, then check root node object
+  let rawPing = props.node.status?.[pingKey] ?? props.node[pingKey] ?? props.node.status?.ping ?? 0
+  let rawLoss = props.node.status?.[lossKey] ?? props.node[lossKey] ?? props.node.status?.loss ?? 0
   
   const parsedPing = typeof rawPing === 'string' ? parseFloat(rawPing) : rawPing;
   const parsedLoss = typeof rawLoss === 'string' ? parseFloat(rawLoss) : rawLoss;
@@ -108,6 +111,7 @@ const networkData = computed(() => ({
 </script>
 
 <template>
+  <!-- Removed opacity-50 classes for debugging so we can see values even if it thinks it's offline -->
   <CardX class="flex flex-col h-full bg-zinc-900/50 border-zinc-800/50 backdrop-blur-sm transition-all duration-300 hover:bg-zinc-800/50">
     <div class="p-4 flex-1 flex flex-col gap-4">
       <!-- Header -->
@@ -214,23 +218,25 @@ const networkData = computed(() => ({
       <div class="w-full h-px bg-zinc-800/50 mt-1 mb-2"></div>
 
       <!-- Multi-Network Ping Status -->
-      <div class="space-y-3" :class="{'opacity-50': isOffline}">
+      <!-- Removed isOffline opacity dependency here to force rendering of values -->
+      <div class="space-y-3">
         
         <!-- Telecom / 电信 -->
         <div class="flex items-center justify-between text-sm">
           <div class="w-10 text-zinc-400 text-xs">电信</div>
           <div class="w-16 font-mono text-yellow-400 text-right">
-            {{ isOnline ? networkData.telecom.avg : 0 }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
+            <!-- Removed isOnline ? ... : 0 check. Just display what we found. -->
+            {{ networkData.telecom.avg }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
           </div>
           <div class="flex flex-1 gap-1 px-3">
              <div 
                 v-for="i in 20" :key="i"
                 class="flex-1 h-2.5 rounded-[1px]"
-                :class="isOnline ? 'bg-yellow-400' : 'bg-zinc-800'"
+                :class="(networkData.telecom.avg > 0) ? 'bg-yellow-400' : 'bg-zinc-800'"
              ></div>
           </div>
           <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ isOnline ? Number(networkData.telecom.loss).toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
+            {{ Number(networkData.telecom.loss).toFixed(1) }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
           </div>
         </div>
 
@@ -238,17 +244,17 @@ const networkData = computed(() => ({
         <div class="flex items-center justify-between text-sm">
           <div class="w-10 text-zinc-400 text-xs">联通</div>
           <div class="w-16 font-mono text-yellow-400 text-right">
-             {{ isOnline ? networkData.unicom.avg : 0 }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
+             {{ networkData.unicom.avg }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
           </div>
           <div class="flex flex-1 gap-1 px-3">
              <div 
                 v-for="i in 20" :key="i"
                 class="flex-1 h-2.5 rounded-[1px]"
-                :class="isOnline ? 'bg-yellow-400' : 'bg-zinc-800'"
+                :class="(networkData.unicom.avg > 0) ? 'bg-yellow-400' : 'bg-zinc-800'"
              ></div>
           </div>
           <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ isOnline ? Number(networkData.unicom.loss).toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
+            {{ Number(networkData.unicom.loss).toFixed(1) }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
           </div>
         </div>
 
@@ -256,17 +262,17 @@ const networkData = computed(() => ({
         <div class="flex items-center justify-between text-sm">
           <div class="w-10 text-zinc-400 text-xs">移动</div>
           <div class="w-16 font-mono text-yellow-400 text-right">
-             {{ isOnline ? networkData.mobile.avg : 0 }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
+             {{ networkData.mobile.avg }}<span class="text-[10px] text-zinc-500 ml-1">ms</span>
           </div>
           <div class="flex flex-1 gap-1 px-3">
              <div 
                 v-for="i in 20" :key="i"
                 class="flex-1 h-2.5 rounded-[1px]"
-                :class="isOnline ? 'bg-yellow-400' : 'bg-zinc-800'"
+                :class="(networkData.mobile.avg > 0) ? 'bg-yellow-400' : 'bg-zinc-800'"
              ></div>
           </div>
           <div class="w-12 font-mono text-emerald-400 text-right text-xs">
-            {{ isOnline ? Number(networkData.mobile.loss).toFixed(1) : '0.0' }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
+            {{ Number(networkData.mobile.loss).toFixed(1) }}<span class="text-[10px] text-zinc-500 ml-0.5">%</span>
           </div>
         </div>
 
