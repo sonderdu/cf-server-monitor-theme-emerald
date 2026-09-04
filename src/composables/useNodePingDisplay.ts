@@ -15,7 +15,7 @@ export interface NodePingBar {
 }
 
 /** 三网面板每行柱条数量 */
-export const PROVIDER_PING_BAR_COUNT = 16
+export const PROVIDER_PING_BAR_COUNT = 10
 
 interface UseNodePingDisplayOptions {
   enabled?: MaybeRefOrGetter<boolean>
