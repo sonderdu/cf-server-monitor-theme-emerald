@@ -24,20 +24,20 @@ function barsTooltipText(bars: { tooltip: string }[]): string {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1">
+  <div class="flex flex-col gap-1.5">
     <div v-for="row in providerRows" :key="row.key" class="flex items-center text-[11px] leading-none gap-2">
       <!-- 运营商标识 -->
       <span class="size-2 rounded-full shrink-0" :class="providerDotColor(row.key)" />
-      <span class="text-muted-foreground w-4 shrink-0">{{ row.name }}</span>
+      <span class="text-muted-foreground w-7 shrink-0 whitespace-nowrap">{{ row.name }}</span>
       <!-- 延迟柱状图 -->
       <DataTooltip placement="top" :content="barsTooltipText(row.latencyBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]" class="!block w-full">
         <div
-          class="grid h-2.5 items-end gap-[2px] cursor-default"
+          class="grid h-3.5 items-end gap-[3px] cursor-default"
           :style="{ gridTemplateColumns: `repeat(${row.latencyBars.length}, minmax(0, 1fr))` }"
         >
           <span
             v-for="bar in row.latencyBars" :key="bar.key"
-            class="block h-full w-full rounded-[1px] transition-all duration-150 hover:scale-y-125 hover:brightness-110"
+            class="block h-full w-full rounded-sm transition-all duration-150 hover:scale-y-125 hover:brightness-110"
             :class="bar.className"
             :title="bar.tooltip"
           />
@@ -49,12 +49,12 @@ function barsTooltipText(bars: { tooltip: string }[]): string {
       <!-- 丢包柱状图 -->
       <DataTooltip placement="top" :content="barsTooltipText(row.lossBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]" class="!block w-full">
         <div
-          class="grid h-2.5 items-end gap-[2px] cursor-default"
+          class="grid h-3.5 items-end gap-[3px] cursor-default"
           :style="{ gridTemplateColumns: `repeat(${row.lossBars.length}, minmax(0, 1fr))` }"
         >
           <span
             v-for="bar in row.lossBars" :key="bar.key"
-            class="block h-full w-full rounded-[1px] transition-all duration-150 hover:scale-y-125 hover:brightness-110"
+            class="block h-full w-full rounded-sm transition-all duration-150 hover:scale-y-125 hover:brightness-110"
             :class="bar.className"
             :title="bar.tooltip"
           />
