@@ -32,7 +32,7 @@ function barsTooltipText(bars: { tooltip: string }[]): string {
       <!-- 延迟柱状图 -->
       <DataTooltip placement="top" :content="barsTooltipText(row.latencyBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]">
         <div
-          class="grid h-2.5 flex-1 items-end gap-[2px] cursor-default"
+          class="grid h-2.5 !w-full min-w-0 items-end gap-[2px] cursor-default"
           :style="{ gridTemplateColumns: `repeat(${row.latencyBars.length}, minmax(0, 1fr))` }"
         >
           <span
@@ -49,7 +49,7 @@ function barsTooltipText(bars: { tooltip: string }[]): string {
       <!-- 丢包柱状图 -->
       <DataTooltip placement="top" :content="barsTooltipText(row.lossBars)" content-class="whitespace-pre-wrap w-max px-1.5 !leading-[1.2] text-[11px]">
         <div
-          class="grid h-2.5 flex-1 items-end gap-[2px] cursor-default"
+          class="grid h-2.5 !w-full min-w-0 items-end gap-[2px] cursor-default"
           :style="{ gridTemplateColumns: `repeat(${row.lossBars.length}, minmax(0, 1fr))` }"
         >
           <span

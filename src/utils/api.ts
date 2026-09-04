@@ -974,10 +974,10 @@ function buildPingProviderWindow(server: CfServer): Record<string, PingProviderW
 }
 
 export function adaptServer(server: CfServer, apiIndex: number): AdaptedServer {
-  const wire = server as unknown as Record<string, unknown>
   const uuid = getDisplayUuid(apiIndex, server.id)
   const baseUrl = getApiBases()[apiIndex] ?? ''
   sourceRegistry.set(uuid, { apiIndex, baseUrl, serverId: server.id })
+  const wire = server as unknown as Record<string, unknown>
 
   const billing = adaptServerBilling(server)
   const updatedAt = timestamp(wire.report_timestamp ?? server.last_updated ?? server.timestamp, 0)
